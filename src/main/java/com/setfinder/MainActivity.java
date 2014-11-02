@@ -48,14 +48,12 @@
 
 package com.setfinder;
 
+import com.setfinder.R;
 import android.util.Log;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.ImageFormat;
-import android.graphics.Paint;
 import android.hardware.Camera;
 import android.hardware.Camera.Size;
 import android.os.Bundle;
@@ -65,65 +63,65 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import java.io.File;
+import android.widget.Button;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.List;
 import org.bytedeco.javacpp.Loader;
 import org.bytedeco.javacpp.opencv_objdetect;
 
 import static org.bytedeco.javacpp.opencv_core.*;
-import static org.bytedeco.javacpp.opencv_imgproc.*;
 import static org.bytedeco.javacpp.opencv_objdetect.*;
-import static org.bytedeco.javacpp.opencv_highgui.*;
 
 // ----------------------------------------------------------------------
 
-public class MainActivity extends Activity 
+public class MainActivity extends Activity implements Camera.PictureCallback
 {
     private static final String LOG_TAG = MainActivity.class.getSimpleName();
-
-    private FrameLayout layout;
     private ImageProcessor m_ImageProcessor;
-    //private FaceView faceView;
     private Preview m_Preview;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) 
 	{
+
         // Hide the window title.
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        //requestWindowFeature(Window.FEATURE_NO_TITLE);
 
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.layout);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-        // Create our Preview view and set it as the content of our activity.
-        //try
-		//{
-        m_ImageProcessor = new ImageProcessor(this);
+        m_ImageProcessor =          new ImageProcessor(this);
+        m_Preview =                 new Preview(this, m_ImageProcessor, this);
 
-            layout = new FrameLayout(this);
-            //faceView = new FaceView(this);
-            //m_Preview = new Preview(this);
-            m_Preview = new Preview(this, m_ImageProcessor);
-        //m_Preview = new Preview(this, faceView);
-            layout.addView(m_Preview);
-            //layout.addView(faceView);
-            setContentView(layout);
-        /*}
-		catch (IOException e) 
-		{
-            e.printStackTrace();
-            new AlertDialog.Builder(this).setMessage(e.getMessage()).create().show();
-        }
-        */
+        FrameLayout layout =        (FrameLayout)findViewById(R.id.frame_layout);
+        final Button takePictureButton =  (Button)findViewById(R.id.take_picture_button);
+
+        takePictureButton.setOnClickListener(new View.OnClickListener()
+        {
+            @Override
+            public void onClick(View v)
+            {
+                m_Preview.takePicture();
+            }
+        });
+
+        layout.addView(m_Preview);
+    }
+
+    @Override
+    public void onPictureTaken(byte[] data, Camera camera)
+    {
+        //TODO.  data is null
+        Log.d(LOG_TAG, "onPictureTaken.  Success " + Integer.toString(data.length));
+
     }
 }
 
 // ----------------------------------------------------------------------
 
-class ImageProcessor extends View implements Camera.PreviewCallback
+class ImageProcessor extends View implements Camera.PreviewCallback, Camera.PictureCallback
 {
     private static final String LOG_TAG = ImageProcessor.class.getSimpleName();
     public static final int SUBSAMPLING_FACTOR = 4;
@@ -236,6 +234,12 @@ class ImageProcessor extends View implements Camera.PreviewCallback
         }
         */
     }
+
+    @Override
+    public void onPictureTaken(byte[] data, Camera camera)
+    {
+        Log.d(LOG_TAG, "onPictureTaken().  size[" + Integer.toString(data.length) + "]");
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -244,20 +248,29 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback
 {
     SurfaceHolder m_Holder;
     Camera m_Camera;
-    Camera.PreviewCallback previewCallback;
+    Camera.PreviewCallback m_PreviewCallback;
+    Camera.PictureCallback m_PictureCallback;
 
-    //Preview(Context context)
-    //Preview(Context context, Camera.PreviewCallback previewCallback)
-    Preview(Context context, Camera.PreviewCallback previewCallback)
+    Preview(Context context, Camera.PreviewCallback previewCallback, Camera.PictureCallback pictureCallback)
 	{
         super(context);
-        this.previewCallback = previewCallback;
+        m_PreviewCallback = previewCallback;
+        m_PictureCallback = pictureCallback;
 
         // Install a SurfaceHolder.Callback so we get notified when the
         // underlying surface is created and destroyed.
         m_Holder = getHolder();
         m_Holder.addCallback(this);
         m_Holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+    }
+
+    public void takePicture()
+    {
+        if (m_Camera == null)
+            return;
+
+        m_Camera.takePicture(null, m_PictureCallback, null);
+
     }
 
     public void surfaceCreated(SurfaceHolder holder) 
@@ -285,7 +298,6 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback
         m_Camera.release();
         m_Camera = null;
     }
-
 
     private Size getOptimalPreviewSize(List<Size> sizes, int w, int h)
     {
@@ -326,7 +338,8 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback
         return optimalSize;
     }
 
-    public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
+    public void surfaceChanged(SurfaceHolder holder, int format, int w, int h)
+    {
         // Now that the size is known, set up the camera parameters and begin
         // the preview.
         Camera.Parameters parameters = m_Camera.getParameters();
@@ -336,14 +349,15 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback
         parameters.setPreviewSize(optimalSize.width, optimalSize.height);
 
         m_Camera.setParameters(parameters);
-        if (previewCallback != null)
-        {
-            m_Camera.setPreviewCallbackWithBuffer(previewCallback);
-            Camera.Size size = parameters.getPreviewSize();
-            byte[] data = new byte[size.width*size.height*
-                    ImageFormat.getBitsPerPixel(parameters.getPreviewFormat())/8];
-            m_Camera.addCallbackBuffer(data);
-        }
+        if (m_PreviewCallback == null)
+            return;
+
+        //m_Camera.setPreviewCallbackWithBuffer(m_PreviewCallback);
+        Camera.Size size = parameters.getPreviewSize();
+        byte[] data = new byte[size.width * size.height *
+                ImageFormat.getBitsPerPixel(parameters.getPreviewFormat())/8];
+        m_Camera.addCallbackBuffer(data);
+
         m_Camera.startPreview();
     }
 
