@@ -48,7 +48,10 @@
 
 package com.setfinder;
 
+import android.os.Looper;
 import com.setfinder.R;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.app.Activity;
 import android.content.Context;
@@ -65,7 +68,10 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.Button;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.util.List;
+
+import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.Loader;
 import org.bytedeco.javacpp.opencv_objdetect;
 
@@ -74,16 +80,47 @@ import static org.bytedeco.javacpp.opencv_objdetect.*;
 
 // ----------------------------------------------------------------------
 
-public class MainActivity extends Activity implements Camera.PictureCallback
+public class MainActivity extends Activity
 {
     private static final String LOG_TAG = MainActivity.class.getSimpleName();
     private ImageProcessor m_ImageProcessor;
-    private Preview m_Preview;
+    private CameraPreview m_Preview;
+    private Camera m_Camera = null;
+    private boolean m_PreviewMode = true;
+    private Handler m_Handler = null;
+
+    public MainActivity()
+    {
+        m_Handler = new Handler(Looper.getMainLooper())
+        {
+            @Override
+            public void handleMessage(Message inputMessage)
+            {
+                String msg = (String)inputMessage.obj;
+
+                Bundle bundle = inputMessage.getData();
+                Integer size = (Integer)bundle.get("Size");
+                Log.d(LOG_TAG, "handleMessage().  msg[" + Integer.toString(size) + "]");
+            }
+        };
+    }
+
+    private Camera.PictureCallback m_PictureCallback = new Camera.PictureCallback()
+    {
+        @Override
+        public void onPictureTaken(byte[] data, Camera camera)
+        {
+            Log.d(LOG_TAG, "onPictureTaken() data.length[" + Integer.toString(data.length) + "]");
+
+            Camera.Size size = camera.getParameters().getPreviewSize();
+            ImageDecoder decoder = new ImageDecoder(data, size, m_Handler);
+            decoder.run();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) 
 	{
-
         // Hide the window title.
         //requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -92,36 +129,77 @@ public class MainActivity extends Activity implements Camera.PictureCallback
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
+        m_Camera = Camera.open();
+
         m_ImageProcessor =          new ImageProcessor(this);
-        m_Preview =                 new Preview(this, m_ImageProcessor, this);
+        m_Preview =                 new CameraPreview(this, m_Camera);
 
         FrameLayout layout =        (FrameLayout)findViewById(R.id.frame_layout);
-        final Button takePictureButton =  (Button)findViewById(R.id.take_picture_button);
+        Button button =  (Button)findViewById(R.id.button);
 
-        takePictureButton.setOnClickListener(new View.OnClickListener()
+        button.setOnClickListener(new View.OnClickListener()
         {
             @Override
             public void onClick(View v)
             {
-                m_Preview.takePicture();
+                if (m_Camera == null)
+                    return;
+
+                // Currently in preview mode.  Take picture.
+                if (m_PreviewMode)
+                {
+                    m_Camera.takePicture(null, null, m_PictureCallback);
+                    m_PreviewMode = false;
+                    return;
+                }
+
+                // Picture has already been taken.  Start preview mode.
+                m_Camera.startPreview();
+                m_PreviewMode = true;
             }
         });
 
         layout.addView(m_Preview);
     }
-
-    @Override
-    public void onPictureTaken(byte[] data, Camera camera)
-    {
-        //TODO.  data is null
-        Log.d(LOG_TAG, "onPictureTaken.  Success " + Integer.toString(data.length));
-
-    }
 }
 
 // ----------------------------------------------------------------------
 
-class ImageProcessor extends View implements Camera.PreviewCallback, Camera.PictureCallback
+class ImageDecoder implements Runnable
+{
+    private static final String LOG_TAG = ImageDecoder.class.getSimpleName();
+    private byte[] m_JpgData = null;
+    private CvMemStorage m_Storage;
+    private IplImage m_RawImage = null;
+    private Camera.Size m_Size;
+    private Handler m_Handler;
+
+    public ImageDecoder(byte[] jpgData, Camera.Size size, Handler handler)
+    {
+        m_JpgData = jpgData;
+        m_Size = size;
+        m_Handler = handler;
+    }
+
+    @Override
+    public void run()
+    {
+        Log.d(LOG_TAG, "run().");
+        Loader.load(opencv_objdetect.class);
+
+        //TODO.  Failing to load shared libs with one of these calls
+        IplImage grayImage = IplImage.create(m_Size.width, m_Size.height, IPL_DEPTH_8U, 1);
+        BytePointer rawImagePointer = new BytePointer(m_JpgData);
+        cvSetData(grayImage, rawImagePointer, m_Size.width * 3);
+        Message msg = Message.obtain(m_Handler);
+        Bundle bundle = new Bundle();
+        bundle.putInt("Size", grayImage.arraySize());
+        msg.setData(bundle);
+        msg.sendToTarget();
+    }
+}
+
+class ImageProcessor extends View
 {
     private static final String LOG_TAG = ImageProcessor.class.getSimpleName();
     public static final int SUBSAMPLING_FACTOR = 4;
@@ -234,131 +312,88 @@ class ImageProcessor extends View implements Camera.PreviewCallback, Camera.Pict
         }
         */
     }
-
-    @Override
-    public void onPictureTaken(byte[] data, Camera camera)
-    {
-        Log.d(LOG_TAG, "onPictureTaken().  size[" + Integer.toString(data.length) + "]");
-    }
 }
 
 // ----------------------------------------------------------------------
 
-class Preview extends SurfaceView implements SurfaceHolder.Callback 
+class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
 {
-    SurfaceHolder m_Holder;
-    Camera m_Camera;
-    Camera.PreviewCallback m_PreviewCallback;
-    Camera.PictureCallback m_PictureCallback;
+    private SurfaceHolder m_Holder;
+    private Camera m_Camera;
 
-    Preview(Context context, Camera.PreviewCallback previewCallback, Camera.PictureCallback pictureCallback)
-	{
+    private static final String LOG_TAG = CameraPreview.class.getSimpleName();
+
+    public CameraPreview(Context context, Camera camera)
+    {
         super(context);
-        m_PreviewCallback = previewCallback;
-        m_PictureCallback = pictureCallback;
+        m_Camera = camera;
 
         // Install a SurfaceHolder.Callback so we get notified when the
         // underlying surface is created and destroyed.
         m_Holder = getHolder();
         m_Holder.addCallback(this);
+
+        // deprecated setting, but required on Android versions prior to 3.0
         m_Holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
     }
 
-    public void takePicture()
+    public void surfaceCreated(SurfaceHolder holder)
     {
-        if (m_Camera == null)
-            return;
-
-        m_Camera.takePicture(null, m_PictureCallback, null);
-
-    }
-
-    public void surfaceCreated(SurfaceHolder holder) 
-	{
-        // The Surface has been created, acquire the camera and tell it where
-        // to draw.
-        m_Camera = Camera.open();
+        // The Surface has been created, now tell the camera where to draw the preview.
         try
         {
-           m_Camera.setPreviewDisplay(holder);
+            m_Camera.setPreviewDisplay(holder);
+            m_Camera.startPreview();
         }
-        catch (IOException exception)
+        catch (IOException e)
         {
-            m_Camera.release();
-            m_Camera = null;
+            Log.d(LOG_TAG, "surfaceCreated().  ERROR.  Setting camera preview: " + e.getMessage());
         }
     }
 
     public void surfaceDestroyed(SurfaceHolder holder)
     {
-        // Surface will be destroyed when we return, so stop the preview.
-        // Because the CameraDevice object is not a shared resource, it's very
-        // important to release it when the activity is paused.
+        // empty. Take care of releasing the Camera preview in your activity.
         m_Camera.stopPreview();
         m_Camera.release();
         m_Camera = null;
     }
 
-    private Size getOptimalPreviewSize(List<Size> sizes, int w, int h)
-    {
-        final double ASPECT_TOLERANCE = 0.05;
-        double targetRatio = (double) w / h;
-        if (sizes == null) return null;
-
-        Size optimalSize = null;
-        double minDiff = Double.MAX_VALUE;
-
-        int targetHeight = h;
-
-        // Try to find an size match aspect ratio and size
-        for (Size size : sizes)
-        {
-            double ratio = (double) size.width / size.height;
-            if (Math.abs(ratio - targetRatio) > ASPECT_TOLERANCE) continue;
-            if (Math.abs(size.height - targetHeight) < minDiff)
-            {
-                optimalSize = size;
-                minDiff = Math.abs(size.height - targetHeight);
-            }
-        }
-
-        // Cannot find the one match the aspect ratio, ignore the requirement
-        if (optimalSize == null)
-        {
-            minDiff = Double.MAX_VALUE;
-            for (Size size : sizes)
-            {
-                if (Math.abs(size.height - targetHeight) < minDiff)
-                {
-                    optimalSize = size;
-                    minDiff = Math.abs(size.height - targetHeight);
-                }
-            }
-        }
-        return optimalSize;
-    }
-
     public void surfaceChanged(SurfaceHolder holder, int format, int w, int h)
     {
-        // Now that the size is known, set up the camera parameters and begin
-        // the preview.
-        Camera.Parameters parameters = m_Camera.getParameters();
+        // If your preview can change or rotate, take care of those events here.
+        // Make sure to stop the preview before resizing or reformatting it.
 
-        List<Size> sizes = parameters.getSupportedPreviewSizes();
-        Size optimalSize = getOptimalPreviewSize(sizes, w, h);
-        parameters.setPreviewSize(optimalSize.width, optimalSize.height);
-
-        m_Camera.setParameters(parameters);
-        if (m_PreviewCallback == null)
+        if (m_Holder.getSurface() == null)
+        {
+            // preview surface does not exist
             return;
+        }
 
-        //m_Camera.setPreviewCallbackWithBuffer(m_PreviewCallback);
-        Camera.Size size = parameters.getPreviewSize();
-        byte[] data = new byte[size.width * size.height *
-                ImageFormat.getBitsPerPixel(parameters.getPreviewFormat())/8];
-        m_Camera.addCallbackBuffer(data);
+        // stop preview before making changes
+        try
+        {
+            m_Camera.stopPreview();
+        }
+        catch (Exception e)
+        {
+            // ignore: tried to stop a non-existent preview
+        }
 
-        m_Camera.startPreview();
+        // set preview size and make any resize, rotate or
+        // reformatting changes here
+
+        // start preview with new settings
+        try
+        {
+            m_Camera.setPreviewDisplay(m_Holder);
+            m_Camera.startPreview();
+
+        }
+        catch (Exception e)
+        {
+            Log.d(LOG_TAG, "surfaceChanged().  ERROR.  Starting camera preview: " + e.getMessage());
+        }
     }
-
 }
+
