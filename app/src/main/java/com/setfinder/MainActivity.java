@@ -82,7 +82,6 @@ public class MainActivity extends Activity
                 Bundle bundle = inputMessage.getData();
                 Bitmap bitmap =  (Bitmap)bundle.getParcelable("Image");
 
-
                 ImageView view = (ImageView)findViewById(R.id.setfinder_activity_surface_view);
                 view.setImageBitmap(Bitmap.createScaledBitmap(
                         bitmap, 720, 480, false));
@@ -129,6 +128,9 @@ public class MainActivity extends Activity
             {
                 if (m_Camera == null)
                     return;
+
+                ImageView view = (ImageView)findViewById(R.id.setfinder_activity_surface_view);
+                view.setImageBitmap(null);
 
                 // Currently in preview mode.  Take picture.
                 if (m_PreviewMode)
@@ -245,10 +247,11 @@ class ImageDecoder implements Runnable
     @Override
     public void run()
     {
+        int val = 20;
         Mat grayMat = convertToGrayMat();
         Mat edgeMat = new Mat(grayMat.size(), grayMat.type());
         Imgproc.blur(grayMat, grayMat, new org.opencv.core.Size(3, 3));
-        Imgproc.Canny(grayMat, edgeMat, 100, 300);
+        Imgproc.Canny(grayMat, edgeMat, val, 3*val);
 
         Message msg = Message.obtain(m_Handler);
         Bundle bundle = new Bundle();

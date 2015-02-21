@@ -1,0 +1,8 @@
+*.jar
+*.dex
+*.store
+*.class
+lint-*
+build/
+workspace.xml
+.gradle

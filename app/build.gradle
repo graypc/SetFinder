@@ -4,22 +4,12 @@ buildscript {
 	}
 
 	dependencies {
+		//classpath 'com.android.tools.build:gradle:0.14.2'
 		classpath 'com.android.tools.build:gradle:0.9.+'
 	}
 }
 
 apply plugin: 'android'
-
-//include ':SetFinder', ':opencv-android'
-
-/*
-repositories {
-    mavenCentral()
-maven {
-        url 'http://maven2.javacv.googlecode.com/git/'
-    }
-}
-*/
 
 dependencies {
 	compile project(':libraries:opencv')
