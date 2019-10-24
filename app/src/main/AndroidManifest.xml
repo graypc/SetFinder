@@ -1,56 +1,29 @@
-<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.setfinder"
-    android:versionCode="1"
-    android:versionName="1.0" >
-          
-	<!--
-	<uses-sdk android:minSdkVersion="11" 
-		android:targetSdkVersion="16"/>    
--->
-          
+    package="org.tensorflow.lite.examples.classification">
+
+    <uses-sdk />
+
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    
-    <application 
-        android:icon="@drawable/icon_app"
-        android:label="@string/app_name">       
 
-		<!--
+    <uses-feature android:name="android.hardware.camera" />
+    <uses-feature android:name="android.hardware.camera.autofocus" />
+
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/activity_name_classification"
+        android:roundIcon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
         <activity
-			android:name="setfinder.MainActivity">
-
+            android:name=".ClassifierActivity"
+            android:label="@string/activity_name_classification"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />              
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-        </activity>        
--->
-
-		<activity
-			android:name="com.setfinder.MainActivity"
-			android:label="@string/app_name"
-			android:screenOrientation="landscape">
-			<intent-filter>
-				<action android:name="android.intent.action.MAIN" />
-				<category android:name="android.intent.category.LAUNCHER" />
-			</intent-filter>
-		</activity>
-
+        </activity>
     </application>
-
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera.autofocus"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera.front"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera.front.autofocus"
-        android:required="false" />
-
-</manifest> 
+</manifest>
